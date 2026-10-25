@@ -15,6 +15,19 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$ROOT"
+
+# Prefer the interpreter that already has the dependencies (a venv, usually);
+# fall back to uv so the test works in a bare checkout too.
+if python3 -c "import httpx, openpyxl, yaml" 2>/dev/null; then
+  VORDR=(python3 vordr.py)
+elif command -v uv >/dev/null 2>&1; then
+  VORDR=(uv run vordr.py)
+else
+  echo "FAIL: dependencies not installed and uv is unavailable" >&2
+  echo "      run: python3 -m pip install -r requirements.txt" >&2
+  exit 1
+fi
+
 python3 tests/fixture_api.py "$PORT" >"$FIXTURE_LOG" 2>&1 &
 FIXTURE_PID=$!
 
@@ -23,7 +36,7 @@ for _ in $(seq 1 40); do
   sleep 0.1
 done
 
-uv run vordr.py "http://127.0.0.1:${PORT}" \
+"${VORDR[@]}" "http://127.0.0.1:${PORT}" \
   -e examples/endpoints.csv \
   --i-have-authorization \
   --allow-private \

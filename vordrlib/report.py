@@ -137,7 +137,7 @@ def write_markdown(path: Path, *, cfg: Config, meta: dict, findings: list[Findin
     lines.append(f"**Inventory:** `{meta.get('file', '')}`  ")
     lines.append("**Scope:** anonymous boundary, no credentials supplied  ")
     lines.append(f"**Profile:** `{cfg.profile}` — methods sent: "
-                 f"{'GET, HEAD, OPTIONS' if cfg.profile == 'safe' else 'GET, HEAD, OPTIONS + guarded writes'}  ")
+                 f"{'GET, HEAD, OPTIONS' if cfg.profile == 'safe' else 'GET, HEAD, OPTIONS + writes'}  ")
     lines.append(f"**Requests sent:** {requests}\n")
 
     lines.append("## Executive summary\n")
@@ -216,12 +216,13 @@ def write_markdown(path: Path, *, cfg: Config, meta: dict, findings: list[Findin
         "discloses to an unauthenticated client.\n"
     )
     lines.append("Not assessed, and not to be read as \"passed\":\n")
-    lines.append("- **Authorization (BOLA / BFLA)** — requires two authenticated identities and real object IDs.")
+    lines.append("- **Authorization (BOLA / BFLA)** — requires two authenticated "
+                 "identities and real object IDs.")
     lines.append("- **Token quality, expiry, revocation, session management** — requires valid tokens.")
     lines.append("- **Data exposure behind authentication, mass assignment, injection,** "
                  "**business-logic abuse** — requires authenticated write operations.")
-    lines.append("- **Encryption at rest, masking, audit logging, key management** — server-side configuration, "
-                 "not observable over the wire.")
+    lines.append("- **Encryption at rest, masking, audit logging, key management** — "
+                 "server-side configuration, not observable over the wire.")
     lines.append("")
     lines.append("Safety: only GET, HEAD and OPTIONS were sent. No request body was transmitted. "
                  "Write operations were identified and deliberately skipped. "

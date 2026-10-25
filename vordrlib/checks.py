@@ -130,7 +130,8 @@ class Auditor(EndpointMixin):
             self._add(None, Finding(
                 title=f"TLS certificate expires in {tls.days_left} days",
                 severity="medium", check="tls", owasp=("API8:2023",), cwe="CWE-298",
-                evidence=f"notAfter={tls.not_after}", remediation="Renew before expiry and monitor with alerting.",
+                evidence=f"notAfter={tls.not_after}",
+                remediation="Renew before expiry and monitor with alerting.",
             ))
         if re.search(r"(?i)RC4|3DES|DES|EXPORT|NULL|MD5", tls.cipher or ""):
             self._add(None, Finding(
@@ -214,7 +215,8 @@ class Auditor(EndpointMixin):
             self._add(None, Finding(
                 title="Authentication error responses are cacheable",
                 severity="low", check="cache", owasp=("API8:2023",), cwe="CWE-524",
-                evidence=f"Cache-Control: {short(headers['cache-control'], 60)} on HTTP {response.status_code}",
+                evidence=f"Cache-Control: {short(headers['cache-control'], 60)} "
+                         f"on HTTP {response.status_code}",
                 remediation="Send Cache-Control: no-store on all authenticated and error responses.",
             ))
 
@@ -295,7 +297,8 @@ class Auditor(EndpointMixin):
                 title=f"API documentation publicly reachable ({path})",
                 severity="medium", check="docs", owasp=("API9:2023",), cwe="CWE-200",
                 evidence=f"GET {url} -> HTTP 200, {len(body)} bytes",
-                remediation="Require authentication for documentation in production, or publish a redacted spec.",
+                remediation="Require authentication for documentation in production, "
+                            "or publish a redacted spec.",
             ))
             return
 

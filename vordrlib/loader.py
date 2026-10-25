@@ -119,7 +119,7 @@ def _build_endpoint(
         note=note,
     )
 
-    if not scheme_of(ep.url) in {"http", "https"}:
+    if scheme_of(ep.url) not in {"http", "https"}:
         ep.skip_reason = "no public URL (internal-only or missing base URL)"
         return ep
 

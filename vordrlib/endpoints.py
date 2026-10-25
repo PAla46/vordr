@@ -78,7 +78,9 @@ class EndpointMixin:
             self._error_probe(res, ep)
         return res
 
-    def _choose_method(self, res: EndpointResult, ep: Endpoint) -> tuple[str | None, bytes | None, dict[str, str]]:
+    def _choose_method(
+        self, res: EndpointResult, ep: Endpoint,
+    ) -> tuple[str | None, bytes | None, dict[str, str]]:
         if ep.method in SAFE_METHODS:
             return ep.method, None, {}
         if ep.method == "DELETE":
@@ -124,7 +126,8 @@ class EndpointMixin:
                     title="Authentication failure returned with HTTP 200",
                     severity="high", check="anon", owasp=("API2:2023",), cwe="CWE-287",
                     evidence=f"HTTP {status} with an auth-failure payload: {short(body_text, 120)}",
-                    remediation="Return 401/403 with WWW-Authenticate; do not signal auth failure in a 2xx body.",
+                    remediation="Return 401/403 with WWW-Authenticate; "
+                                "do not signal auth failure in a 2xx body.",
                 ))
             count = record_count(body)
             if public_expected:
@@ -155,7 +158,9 @@ class EndpointMixin:
             baseline = self.info.get("baseline_404")
             if baseline == 404:
                 res.auth_enforced = "concealed"
-                res.signals.append(("info", "HTTP 404 — endpoint concealed or absent; cannot confirm enforcement"))
+                res.signals.append(
+                    ("info", "HTTP 404 — endpoint concealed or absent; cannot confirm enforcement")
+                )
             else:
                 res.auth_enforced = "unconfirmed"
                 res.signals.append(("warn", f"HTTP 404 while unknown paths return {baseline}"))
@@ -180,7 +185,8 @@ class EndpointMixin:
                 title=f"Unhandled error on an unauthenticated request (HTTP {status})",
                 severity="medium", check="error_handling", owasp=("API8:2023",), cwe="CWE-755",
                 evidence=f"HTTP {status}: {short(body_text, 120)}",
-                remediation="Return a generic 4xx/5xx body without internals; alert on 5xx for anonymous traffic.",
+                remediation="Return a generic 4xx/5xx body without internals; "
+                            "alert on 5xx for anonymous traffic.",
             ))
             return
 
@@ -304,7 +310,8 @@ class EndpointMixin:
                 title=f"No rate limiting observed in {n} sequential requests",
                 severity="low", check="rate_limit", owasp=("API4:2023",), cwe="CWE-770",
                 evidence=f"{n} sequential GETs, {limited} throttled, headers: {headers or 'none'}",
-                remediation="Enforce per-identity and per-IP quotas at the gateway and return 429 with Retry-After.",
+                remediation="Enforce per-identity and per-IP quotas at the gateway "
+                            "and return 429 with Retry-After.",
                 detail="Inconclusive by nature: per-key limits cannot be measured without a key.",
             ))
 
@@ -349,7 +356,8 @@ class EndpointMixin:
                     asvs="V13.1.1",
                     evidence=f"{label} -> HTTP {response.status_code}, "
                              f"{record_count(json_body(response.text or ''))} record(s)",
-                    remediation="Validate token signature, issuer, audience and expiry; never trust the header shape.",
+                    remediation="Validate token signature, issuer, audience and expiry; "
+                                "never trust the header shape.",
                 ))
                 return
         res.signals.append(("pass", "forged credentials rejected"))
@@ -373,7 +381,8 @@ class EndpointMixin:
                     title=f"Authorization bypass via {label}",
                     severity="critical", check="header_bypass", owasp=("API2:2023", "API5:2023"),
                     cwe="CWE-290", evidence=f"{label} -> HTTP {response.status_code} with data",
-                    remediation="Strip client-supplied forwarding headers at the edge; never use them for auth decisions.",
+                    remediation="Strip client-supplied forwarding headers at the edge; "
+                                "never use them for auth decisions.",
                 ))
                 return
         res.signals.append(("pass", "proxy-header bypass rejected"))

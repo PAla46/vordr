@@ -99,36 +99,52 @@ posture checker, not an exploit tool.
 
 ## Install
 
-Vörðr is a single entry script with PEP 723 metadata. Nothing to install if you
-have [uv](https://docs.astral.sh/uv/):
+Python 3.10+ and three packages. **uv is not required** — it is one of several
+ways to run the tool.
+
+Plain Python:
 
 ```bash
-git clone https://github.com/<you>/vordr.git
+git clone https://github.com/PAla46/vordr.git
 cd vordr
-uv run vordr.py --version
+
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+
+./vordr.py --version
 ```
 
-Or install it as a command:
+As a system command (`vordr`) instead of `./vordr.py`:
 
 ```bash
-uv tool install .
+pip install .
 vordr --version
 ```
 
-Python 3.10+ is required. Dependencies: `httpx`, `openpyxl`, `pyyaml`.
+With uv, if you happen to have it — nothing is installed permanently:
+
+```bash
+uv run vordr.py --version
+```
+
+Dependencies: `httpx`, `openpyxl`, `pyyaml`. They are declared in three places
+so every runner agrees: `requirements.txt` (pip), `pyproject.toml` (installs and
+the `vordr` entry point) and a PEP 723 block in `vordr.py` (uv only, ignored by
+Python).
 
 ## Quick start
 
 ```bash
 # 1. Create an inventory workbook to fill in
-uv run vordr.py --make-template api-inventory.xlsx
+./vordr.py --make-template api-inventory.xlsx
 
 # 2. See exactly what would be sent, without sending anything
-uv run vordr.py https://api.example.com \
+./vordr.py https://api.example.com \
   -e api-inventory.xlsx --i-have-authorization --dry-run
 
 # 3. Run the assessment
-uv run vordr.py https://api.example.com \
+./vordr.py https://api.example.com \
   -e api-inventory.xlsx \
   --i-have-authorization \
   --author "Your Name"
@@ -136,6 +152,8 @@ uv run vordr.py https://api.example.com \
 # 4. Read the results
 ls vordr-out/
 ```
+
+If you installed with `pip install .`, substitute `vordr` for `./vordr.py`.
 
 Outputs:
 
@@ -282,7 +300,7 @@ CLI flags override the file.
 CI example:
 
 ```bash
-uv run vordr.py https://api.staging.example.com \
+./vordr.py https://api.staging.example.com \
   -e api-inventory.xlsx --i-have-authorization \
   --fail-on high --no-color
 ```
@@ -290,13 +308,20 @@ uv run vordr.py https://api.staging.example.com \
 ## Development
 
 ```bash
-git clone https://github.com/<you>/vordr.git
+git clone https://github.com/PAla46/vordr.git
 cd vordr
-uvx ruff check vordr.py vordrlib tests
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt ruff
+
+ruff check vordr.py vordrlib tests
 ./tests/smoke.sh          # starts a deliberately weak local API and asserts findings
 ```
 
-Branches: `main` is stable, `dev` is where work happens.
+The smoke test uses the active interpreter when it already has the
+dependencies, and falls back to `uv run` otherwise, so it works in either setup.
+
+Branches: `main` is stable, `dev` is where work happens. CI runs on plain pip
+against Python 3.10 and 3.12.
 
 ## License
 
