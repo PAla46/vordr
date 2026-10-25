@@ -19,6 +19,9 @@ Runs with plain Python once the three dependencies are installed:
     ./vordr.py --make-template endpoints.xlsx
     ./vordr.py https://api.example.com -e endpoints.xlsx --i-have-authorization
 
+Endpoints can come from an Excel sheet, a text file, repeated --url flags, stdin,
+or an interactive prompt when no source is given.
+
 The PEP 723 block above is inert to Python and only read by ``uv``, so
 ``uv run vordr.py ...`` keeps working if you prefer that. uv is not required.
 

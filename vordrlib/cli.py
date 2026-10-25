@@ -13,7 +13,7 @@ import yaml
 
 from .checks import Auditor
 from .engine import Engine, ScopeError, check_scope
-from .loader import InventoryError, load_endpoints, make_template
+from .loader import InventoryError, load_inventory, make_template
 from .model import (
     SEVERITIES,
     VERSION,
@@ -49,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("target", nargs="?", help="base URL, e.g. https://api.example.com")
     parser.add_argument("-e", "--endpoints", metavar="FILE",
                         help="inventory: .xlsx, .csv or .txt (one endpoint per line)")
+    parser.add_argument("-u", "--url", action="append", metavar="ENDPOINT", default=None,
+                        help="endpoint or full URL to test, e.g. -u /v1/users -u /health "
+                             "(repeatable; can be combined with -e)")
+    parser.add_argument("--stdin", action="store_true", default=None, dest="read_stdin",
+                        help="read endpoints from standard input, one per line "
+                             "(piped input is detected automatically)")
     parser.add_argument("-c", "--config", metavar="FILE", help="YAML configuration file")
     parser.add_argument("-o", "--out", metavar="DIR", help="output directory (default: vordr-out)")
     parser.add_argument("--author", metavar="NAME", help="name shown in the banner and user agent")
@@ -140,6 +146,12 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
             [h.strip().lower() for h in str(hosts).split(",") if h.strip()]
     if data.get("placeholders"):
         cfg.placeholders = {str(k): str(v) for k, v in data["placeholders"].items()}
+    urls = data.get("urls") or data.get("url")
+    if urls:
+        cfg.urls = list(urls) if isinstance(urls, list) else \
+            [v.strip() for v in str(urls).split(",") if v.strip()]
+    if data.get("stdin") is not None:
+        cfg.read_stdin = bool(data["stdin"])
     if data.get("expect_public"):
         values = data["expect_public"]
         cfg.expect_public = list(values) if isinstance(values, list) else \
@@ -189,6 +201,10 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         cfg.skip_checks = [c.strip() for c in args.skip_checks.split(",") if c.strip()]
     if args.expect_public:
         cfg.expect_public = [p.strip() for p in args.expect_public.split(",") if p.strip()]
+    if args.url:
+        cfg.urls.extend(args.url)
+    if args.read_stdin:
+        cfg.read_stdin = True
     for item in args.param or []:
         if "=" not in item:
             raise SystemExit(f"--param expects NAME=VALUE, got {item!r}")
@@ -230,18 +246,19 @@ def main(argv: list[str] | None = None) -> int:
     p = Printer(color=cfg.color and color_enabled(), verbose=cfg.verbose)
     p.header(cfg.author)
 
-    if not cfg.endpoints_file:
-        p.failed("no inventory supplied: use -e/--endpoints FILE")
-        return 2
     try:
-        endpoints, meta = load_endpoints(cfg)
-    except InventoryError as exc:
+        endpoints, meta = load_inventory(cfg)
+    except (InventoryError, OSError) as exc:
         p.failed(str(exc))
         return 2
 
     hosts = meta.get("hosts", [])
     if not hosts:
-        p.failed("no absolute endpoint URLs: supply a target base URL or a PublicURL column")
+        p.failed(
+            "no absolute endpoint URLs: give the target first "
+            "(vordr.py https://api.example.com -u /v1/users) "
+            "or supply full URLs / a PublicURL column"
+        )
         return 2
     if not cfg.allow_hosts:
         cfg.allow_hosts = list(hosts)

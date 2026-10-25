@@ -166,6 +166,18 @@ Outputs:
 
 ## Inventory formats
 
+There are four ways to tell Vörðr what to test, and they can be mixed:
+
+```bash
+-e inventory.xlsx                          # Excel inventory
+-e endpoints.txt                           # plain text, one endpoint per line
+-u /v1/users -u /v1/orders/{id}            # manual, repeatable, no file
+cat endpoints.txt | ./vordr.py ...         # stdin (piped input is detected)
+./vordr.py ...                             # no source: prompts you interactively
+```
+
+### From a file
+
 `.xlsx`, `.csv` and `.txt` are accepted. Headers are matched fuzzily, so an
 inventory does not need to be reformatted. Every `.xlsx` sheet is read unless
 `--sheet` is given; sheets named `Legend`, `README`, `Cover` or `Instructions`
@@ -190,13 +202,55 @@ tool distinguish *"serves data anonymously"* from *"serves data anonymously
 despite the owner declaring authentication is required"* — the difference between
 a high and a critical finding.
 
-For a plain text list:
+For a plain text list, one endpoint per line; the method prefix is optional and
+comments are ignored:
 
 ```
 GET /v1/users
 GET /v1/products
 /v1/health
+# this line is ignored
 ```
+
+### Manually, or by pasting
+
+For a handful of endpoints there is no need to create a file:
+
+```bash
+./vordr.py https://api.example.com \
+  --i-have-authorization \
+  -u /v1/users \
+  -u /v1/admin/stats \
+  -u "/v1/orders/{id}" --param id=12345
+```
+
+Or paste a list — `--stdin`, or simply pipe into the tool:
+
+```bash
+./vordr.py https://api.example.com --i-have-authorization --stdin
+```
+
+```bash
+cat <<'EOF' | ./vordr.py https://api.example.com --i-have-authorization
+GET /v1/users
+/v1/products
+/v1/orders/{id}
+EOF
+```
+
+Run it with no source at all on a terminal and it prompts, one endpoint per line,
+finishing on an empty line or `Ctrl-D`:
+
+```
+[*] Enter endpoints one per line, for example /v1/users or GET /v1/orders/{id}
+[*] Finish with an empty line, or Ctrl-D. Placeholders use --param NAME=VALUE.
+endpoint> /v1/users
+endpoint> /v1/admin/stats
+endpoint>
+```
+
+Manual and file sources can be combined; duplicates are removed. Endpoints given
+with `-u` may be paths (joined with the target/base URL) or absolute URLs.
 
 Path placeholders (`{id}`, `:id`, `<id>`) are never requested literally. Supply
 values with `--param id=123` or a `placeholders:` block; anything unresolved is

@@ -5,6 +5,12 @@
 target: https://api.example.com
 endpoints_file: examples/endpoints.csv
 
+# Alternative to endpoints_file: endpoints given inline, or read from stdin.
+# url:
+#   - /v1/users
+#   - /v1/orders/{orderId}
+# stdin: false
+
 # Required. Setting this records that you have written authorization to test
 # the hosts in the inventory. The tool refuses to send traffic without it.
 scope_ack: false

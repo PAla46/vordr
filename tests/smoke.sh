@@ -81,6 +81,24 @@ print(f"findings: {len(data['findings'])}, critical: {data['summary']['critical'
       f"requests: {data['requests_sent']}")
 PY
 
+# --url: manual endpoints, no inventory file, with a placeholder
+"${VORDR[@]}" "http://127.0.0.1:${PORT}" \
+  --i-have-authorization --allow-private --no-color \
+  -u /v1/users -u "/v1/orders/{id}" --param id=1 \
+  --out "$OUT/url" >"$OUT/url.txt"
+expect "manual (-u/--url)" "$OUT/url.txt"
+expect "GET /v1/orders/1" "$OUT/url.txt"
+expect "auth enforced" "$OUT/url.txt"
+
+# stdin: pasted list, one endpoint per line, method prefixes allowed
+printf 'GET /v1/users\n/v1/products\n# comment\n\nPOST /v1/users\n' | \
+  "${VORDR[@]}" "http://127.0.0.1:${PORT}" \
+  --i-have-authorization --allow-private --no-color \
+  --out "$OUT/stdin" >"$OUT/stdin.txt"
+expect "sheet 'stdin'" "$OUT/stdin.txt"
+expect "GET /v1/products" "$OUT/stdin.txt"
+expect "write method POST" "$OUT/stdin.txt"
+
 if [[ "$fail" -ne 0 ]]; then
   echo "SMOKE TEST FAILED" >&2
   exit 1

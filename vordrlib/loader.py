@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -199,43 +200,62 @@ def _parse_csv(path: Path, cfg: Config) -> tuple[list[Endpoint], dict]:
     return endpoints, {"sheets": [{"name": "csv", "rows": len(endpoints), "header_row": start}]}
 
 
-def _parse_text(path: Path, cfg: Config) -> tuple[list[Endpoint], dict]:
+def _line_endpoint(text: str, cfg: Config, sheet: str, row: int) -> Endpoint | None:
+    """Build one endpoint from a line: ``GET /v1/users``, a bare path, or a full URL."""
+    text = text.split("#", 1)[0].strip()
+    if not text:
+        return None
+    parts = text.split()
+    method = "GET"
+    if len(parts) > 1 and parts[0].upper() in SAFE_METHODS | WRITE_METHODS:
+        method = parts[0].upper()
+        text = " ".join(parts[1:])
+    ep = _build_endpoint(
+        sheet=sheet, row=[text], mapping={"endpoint": 0}, default_row=row, cfg=cfg,
+    )
+    if ep is None:
+        return None
+    ep.method = method
+    if method in WRITE_METHODS and cfg.profile == "safe":
+        ep.skip_reason = f"write method {method} (safe profile: GET/HEAD/OPTIONS only)"
+    return ep
+
+
+def _parse_lines(lines: list[str], cfg: Config, sheet: str) -> list[Endpoint]:
     endpoints = []
-    for offset, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
-        text = line.split("#", 1)[0].strip()
-        if not text:
-            continue
-        parts = text.split()
-        method = "GET"
-        if len(parts) > 1 and parts[0].upper() in SAFE_METHODS | WRITE_METHODS:
-            method = parts[0].upper()
-            text = " ".join(parts[1:])
-        ep = _build_endpoint(
-            sheet="list", row=[text], mapping={"endpoint": 0},
-            default_row=offset, cfg=cfg,
-        )
+    for offset, line in enumerate(lines, start=1):
+        ep = _line_endpoint(line, cfg, sheet, offset)
         if ep is not None:
-            ep.method = method
-            if method in WRITE_METHODS and cfg.profile == "safe":
-                ep.skip_reason = f"write method {method} (safe profile: GET/HEAD/OPTIONS only)"
             endpoints.append(ep)
+    return endpoints
+
+
+def _parse_text(path: Path, cfg: Config) -> tuple[list[Endpoint], dict]:
+    text = path.read_text(encoding="utf-8-sig")
+    endpoints = _parse_lines(text.splitlines(), cfg, "list")
     return endpoints, {"sheets": [{"name": "list", "rows": len(endpoints), "header_row": 0}]}
 
 
-def load_endpoints(cfg: Config) -> tuple[list[Endpoint], dict]:
-    path = Path(cfg.endpoints_file).expanduser()
-    if not path.exists():
-        raise InventoryError(f"inventory not found: {path}")
-    suffix = path.suffix.lower()
-    if suffix in {".xlsx", ".xlsm", ".xltx"}:
-        endpoints, meta = _parse_xlsx(path, cfg)
-    elif suffix in {".csv", ".tsv"}:
-        endpoints, meta = _parse_csv(path, cfg)
-    elif suffix in {".txt", ".list", ".lst", ""}:
-        endpoints, meta = _parse_text(path, cfg)
-    else:
-        raise InventoryError(f"unsupported inventory type: {suffix} (use .xlsx, .csv or .txt)")
+def prompt_endpoints(cfg: Config) -> list[Endpoint]:
+    """Read endpoints typed (or pasted) on the terminal, one per line."""
+    print("[*] Enter endpoints one per line, for example /v1/users or GET /v1/orders/{id}")
+    print("[*] Finish with an empty line, or Ctrl-D. Placeholders use --param NAME=VALUE.")
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("endpoint> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line.strip():
+            break
+        lines.append(line)
+    return _parse_lines(lines, cfg, "interactive")
 
+
+def _finalize(
+    endpoints: list[Endpoint], cfg: Config, sources: list[str], sheets: list[dict],
+) -> tuple[list[Endpoint], dict]:
     if cfg.service_filter:
         needle = cfg.service_filter.lower()
         endpoints = [e for e in endpoints if needle in (e.service + " " + e.description).lower()]
@@ -252,8 +272,9 @@ def load_endpoints(cfg: Config) -> tuple[list[Endpoint], dict]:
     if cfg.limit:
         unique = unique[: cfg.limit]
 
-    meta.update({
-        "file": str(path),
+    meta = {
+        "file": " + ".join(sources) or "(none)",
+        "sheets": sheets,
         "total": len(unique),
         "testable": sum(1 for e in unique if not e.skip_reason),
         "skipped": Counter(
@@ -261,8 +282,69 @@ def load_endpoints(cfg: Config) -> tuple[list[Endpoint], dict]:
             for e in unique if e.skip_reason
         ),
         "hosts": sorted({h for h in (urlsplit(e.url).netloc for e in unique if e.url) if h}),
-    })
+    }
     return unique, meta
+
+
+def _parse_file(path: Path, cfg: Config) -> tuple[list[Endpoint], dict, list[dict]]:
+    suffix = path.suffix.lower()
+    if suffix in {".xlsx", ".xlsm", ".xltx"}:
+        endpoints, meta = _parse_xlsx(path, cfg)
+    elif suffix in {".csv", ".tsv"}:
+        endpoints, meta = _parse_csv(path, cfg)
+    elif suffix in {".txt", ".list", ".lst", ""}:
+        endpoints, meta = _parse_text(path, cfg)
+    else:
+        raise InventoryError(f"unsupported inventory type: {suffix} (use .xlsx, .csv or .txt)")
+    return endpoints, meta, meta.get("sheets", [])
+
+
+def load_inventory(cfg: Config) -> tuple[list[Endpoint], dict]:
+    """Gather endpoints from a file, ``--url`` values, stdin or an interactive prompt."""
+    endpoints: list[Endpoint] = []
+    sheets: list[dict] = []
+    sources: list[str] = []
+
+    if cfg.endpoints_file:
+        path = Path(cfg.endpoints_file).expanduser()
+        if not path.exists():
+            raise InventoryError(f"inventory not found: {path}")
+        parsed, _meta, parsed_sheets = _parse_file(path, cfg)
+        endpoints += parsed
+        sheets += parsed_sheets
+        sources.append(str(path))
+
+    if cfg.urls:
+        parsed = _parse_lines(cfg.urls, cfg, "manual")
+        endpoints += parsed
+        sheets.append({"name": "manual", "rows": len(parsed), "header_row": 0})
+        sources.append("manual (-u/--url)")
+
+    read_stdin = cfg.read_stdin
+    interactive = False
+    if not (cfg.endpoints_file or cfg.urls or read_stdin):
+        if sys.stdin.isatty():
+            interactive = True
+        else:
+            read_stdin = True
+
+    if read_stdin:
+        parsed = _parse_lines(sys.stdin.read().splitlines(), cfg, "stdin")
+        endpoints += parsed
+        sheets.append({"name": "stdin", "rows": len(parsed), "header_row": 0})
+        sources.append("stdin")
+
+    if interactive:
+        parsed = prompt_endpoints(cfg)
+        endpoints += parsed
+        sheets.append({"name": "interactive", "rows": len(parsed), "header_row": 0})
+        sources.append("interactive prompt")
+
+    if not endpoints:
+        raise InventoryError(
+            "no endpoints supplied: use -e FILE, --url URL, --stdin, or run interactively"
+        )
+    return _finalize(endpoints, cfg, sources, sheets)
 
 
 def make_template(path: Path) -> None:

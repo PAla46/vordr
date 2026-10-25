@@ -376,6 +376,8 @@ class EndpointResult:
 class Config:
     target: str = ""
     endpoints_file: str = ""
+    urls: list[str] = field(default_factory=list)
+    read_stdin: bool = False
     out_dir: str = "vordr-out"
     author: str = ""
     profile: str = "safe"
