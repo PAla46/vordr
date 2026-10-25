@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv sync
+      - name: Ruff
+        run: uvx ruff check vordr.py vordrlib tests
+      - name: Compile
+        run: python3 -m compileall -q vordrlib vordr.py
+      - name: CLI smoke
+        run: uv run vordr.py --version
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: End-to-end against the fixture API
+        run: ./tests/smoke.sh

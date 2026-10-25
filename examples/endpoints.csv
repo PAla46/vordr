@@ -1,0 +1,8 @@
+Service,Method,Endpoint,Auth Required,Public By Design,Description,Owner,Notes
+catalogue-api,GET,/v1/users,Yes,No,User listing,catalogue-team,declares authentication
+catalogue-api,GET,/v1/products,No,No,Product catalogue,catalogue-team,public catalogue data
+catalogue-api,GET,/v1/admin/stats,Yes,No,Admin metrics,platform-team,should never be anonymous
+catalogue-api,GET,/health,No,Yes,Liveness probe,platform-team,
+catalogue-api,GET,/v1/orders/{id},Yes,No,Order detail,orders-team,placeholder must be resolved
+catalogue-api,GET,/v1/leaky,Yes,No,Error handling,platform-team,
+catalogue-api,POST,/v1/users,Yes,No,User creation,identity-team,write method

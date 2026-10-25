@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Vörðr output
+vordr-out/
+*.progress.jsonl
+
+# Assessments contain client data — never commit them.
+report.md
+report.xlsx
+findings.json
+evidence.jsonl
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

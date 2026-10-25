@@ -1,0 +1,49 @@
+# Vörðr configuration — see README.md for the full reference.
+#
+# Everything here can be overridden on the command line.
+
+target: https://api.example.com
+endpoints_file: examples/endpoints.csv
+
+# Required. Setting this records that you have written authorization to test
+# the hosts in the inventory. The tool refuses to send traffic without it.
+scope_ack: false
+
+profile: safe            # safe = GET/HEAD/OPTIONS only
+                         # guarded = also POST/PUT/PATCH with a zero-length body
+
+safe:
+  max_requests: 800
+  delay_ms: 120
+  timeout: 15
+  allow_private: false
+  include_internal: false
+
+  # Opt-in checks with real traffic weight.
+  rate_limit_probe: false
+  rate_burst: 25
+  error_probe: false
+  weak_tls: false
+
+allow_hosts:
+  - api.example.com
+
+# Values for {id}-style path placeholders. Unresolved placeholders are skipped,
+# never requested literally.
+placeholders:
+  id: "1"
+  orderId: "ORDER-1001"
+
+# Paths that are public by design. Prevents false positives on probes, docs and
+# authentication entry points. Regular expressions are accepted.
+expect_public:
+  - "^/health"
+  - "^/v1/auth/(login|register|token)"
+  - "^/metrics"
+
+checks:
+  skip: []
+
+report:
+  author: Your Name
+  out_dir: vordr-out
