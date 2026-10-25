@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from collections import Counter
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -107,9 +108,11 @@ class EndpointMixin:
         if status in {401, 403}:
             res.auth_enforced = "yes"
             detail = f"auth enforced (HTTP {status}"
-            detail += f", WWW-Authenticate: {scheme})" if scheme else ", no WWW-Authenticate)"
+            if status == 401:
+                detail += f", WWW-Authenticate: {scheme})" if scheme else ", no WWW-Authenticate)"
+            else:
+                detail += ")"
             res.signals.append(("pass", detail))
-            self.executed.add("forgery")
             return
 
         if status == 429:
@@ -254,6 +257,7 @@ class EndpointMixin:
         walk(body)
         hits = sorted(k for k in keys if SENSITIVE_KEY_RE.match(k))
         if not hits:
+            res.signals.append(("pass", f"no sensitive field names in anonymous payload ({len(keys)} keys)"))
             return
         shown = ", ".join(hits[:12])
         self._add(res, Finding(
@@ -271,6 +275,7 @@ class EndpointMixin:
         self.executed.add("cache")
         cache = response.headers.get("cache-control", "").lower()
         if "no-store" in cache or "private" in cache:
+            res.signals.append(("pass", "response is marked non-cacheable"))
             return
         if not cache or "public" in cache or "max-age" in cache:
             self._add(res, Finding(
@@ -281,6 +286,8 @@ class EndpointMixin:
             ))
 
     def _rate_headers(self, res: EndpointResult, response: Any) -> None:
+        if res.rate_limited:
+            return
         hits = [k for k in response.headers if RATE_HEADER_RE.search(k)]
         if hits:
             res.signals.append(("pass", "rate-limit headers present: " + ", ".join(sorted(hits)[:4])))
@@ -291,29 +298,63 @@ class EndpointMixin:
 
     def _rate_probe(self, res: EndpointResult) -> None:
         n = max(5, min(self.cfg.rate_burst, 40))
-        limited, headers = 0, {}
+        statuses: Counter[int] = Counter()
+        headers: dict[str, str] = {}
+        throttled_at = 0
+        res.signals.append(("info", f"rate limit probe: up to {n} sequential GETs"))
         for index in range(n):
             response = self.engine.request("GET", res.endpoint.url, note=f"rate probe {index + 1}/{n}")
             if response is None:
                 break
+            statuses[response.status_code] += 1
             for key, value in response.headers.items():
                 if RATE_HEADER_RE.search(key):
                     headers[key] = value
-            if response.status_code in {429, 503}:
-                limited += 1
+            if response.status_code == 429:
+                throttled_at = index + 1
+                break
         self.executed.add("rate_limit")
-        if limited:
+
+        seen = sum(statuses.values())
+        dist = ", ".join(f"HTTP {code} x{count}" for code, count in sorted(statuses.items()))
+        evidence = (
+            f"{seen} sequential GETs; statuses: {dist or 'no response'}; "
+            f"headers: {', '.join(sorted(headers)) or 'none'}"
+        )
+
+        if throttled_at:
             res.rate_limited = True
-            res.signals.append(("pass", f"rate limiting enforced: {limited}/{n} requests throttled"))
-        else:
-            self._add(res, Finding(
-                title=f"No rate limiting observed in {n} sequential requests",
-                severity="low", check="rate_limit", owasp=("API4:2023",), cwe="CWE-770",
-                evidence=f"{n} sequential GETs, {limited} throttled, headers: {headers or 'none'}",
-                remediation="Enforce per-identity and per-IP quotas at the gateway "
-                            "and return 429 with Retry-After.",
-                detail="Inconclusive by nature: per-key limits cannot be measured without a key.",
+            res.signals.append(("pass", f"rate limiting enforced (HTTP 429 at request {throttled_at})"))
+            return
+        if headers:
+            res.signals.append(("pass", "rate-limit headers advertised during the burst"))
+            return
+
+        # If every request was refused by authentication, the burst never reached the
+        # limiter. Reporting "no rate limiting" would be a false negative, so say so.
+        if statuses and set(statuses) <= {401, 403}:
+            res.signals.append((
+                "info",
+                "rate limiting not observable: all burst requests were rejected with 401/403",
             ))
+            self._add(res, Finding(
+                title="Rate limiting not observable at the anonymous boundary",
+                severity="info", check="rate_limit", owasp=("API4:2023",), cwe="CWE-770",
+                evidence=evidence,
+                remediation="Confirm per-identity quotas for the authenticated operation. "
+                            "The anonymous rejection path says nothing about them.",
+                detail="Requests were refused by authentication, so the limiter may sit behind it.",
+            ))
+            return
+
+        self._add(res, Finding(
+            title=f"No rate limiting observed in {seen} sequential requests",
+            severity="low", check="rate_limit", owasp=("API4:2023",), cwe="CWE-770",
+            evidence=evidence,
+            remediation="Enforce per-identity and per-IP quotas at the gateway "
+                        "and return 429 with Retry-After.",
+            detail="Inconclusive by nature: per-key limits cannot be measured without a key.",
+        ))
 
     def _methods(self, res: EndpointResult, ep: Endpoint) -> None:
         self.executed.add("methods")
@@ -335,6 +376,7 @@ class EndpointMixin:
 
     # ------------------------------------------------------------------ bypasses
     def _forgery(self, res: EndpointResult, ep: Endpoint) -> None:
+        self.executed.add("forgery")
         variants = {
             "Bearer null": {"Authorization": "Bearer null"},
             "random bearer": {"Authorization": f"Bearer {secrets.token_urlsafe(24)}"},
@@ -363,6 +405,7 @@ class EndpointMixin:
         res.signals.append(("pass", "forged credentials rejected"))
 
     def _header_bypass(self, res: EndpointResult, ep: Endpoint) -> None:
+        self.executed.add("header_bypass")
         path = urlsplit(ep.url).path or "/"
         variants = {
             "X-Forwarded-For: 127.0.0.1": {"X-Forwarded-For": "127.0.0.1"},
@@ -388,6 +431,7 @@ class EndpointMixin:
         res.signals.append(("pass", "proxy-header bypass rejected"))
 
     def _path_variants(self, res: EndpointResult, ep: Endpoint) -> None:
+        self.executed.add("path_variant")
         base = urlsplit(ep.url)
         path = base.path or "/"
         variants = self._build_variants(path)
@@ -445,6 +489,8 @@ class EndpointMixin:
                          + (f", marker '{hit}'" if hit else ""),
                 remediation="Disable debug output, catch parser errors and return a correlation id only.",
             ))
+        else:
+            res.signals.append(("pass", "no verbose errors on malformed input"))
 
     # ------------------------------------------------------------------ rendering
     def _render(self, res: EndpointResult) -> None:

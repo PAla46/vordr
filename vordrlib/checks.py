@@ -156,6 +156,7 @@ class Auditor(EndpointMixin):
         response = self.engine.request("GET", plain, note="plaintext probe")
         self.executed.add("plaintext")
         if response is None:
+            self.p.passed("plaintext HTTP not reachable (port 80 closed or filtered)")
             return
         location = response.headers.get("location", "")
         if response.status_code in {301, 302, 307, 308} and location.startswith("https://"):
@@ -193,6 +194,7 @@ class Auditor(EndpointMixin):
                 self.executed.add("hsts")
                 self.p.passed("HSTS present: " + short(headers["strict-transport-security"], 50))
         if "x-content-type-options" not in headers:
+            self.p.failed("X-Content-Type-Options not set (MIME sniffing)")
             self._add(None, Finding(
                 title="X-Content-Type-Options not set (MIME sniffing)",
                 severity="low", check="headers", owasp=("API8:2023",), cwe="CWE-693",
@@ -212,6 +214,7 @@ class Auditor(EndpointMixin):
         if (headers.get("cache-control")
                 and "no-store" not in headers["cache-control"].lower()
                 and response.status_code >= 400):
+            self.p.warn("Authentication error responses are cacheable")
             self._add(None, Finding(
                 title="Authentication error responses are cacheable",
                 severity="low", check="cache", owasp=("API8:2023",), cwe="CWE-524",
@@ -272,6 +275,7 @@ class Auditor(EndpointMixin):
         if null_response is not None and null_response.headers.get(
             "access-control-allow-origin", ""
         ) == "null":
+            self.p.warn("CORS accepts the 'null' origin")
             self._add(None, Finding(
                 title="CORS accepts the 'null' origin",
                 severity="medium", check="cors", owasp=("API8:2023",), cwe="CWE-942",
@@ -301,15 +305,18 @@ class Auditor(EndpointMixin):
                             "or publish a redacted spec.",
             ))
             return
+        self.p.passed(f"no API documentation exposed at {len(DOC_PATHS)} common paths")
 
     def _sensitive_paths(self, base: str) -> None:
         self.executed.add("sensitive_paths")
+        found = 0
         for path, severity, label in SENSITIVE_PATHS:
             url = urljoin(base.rstrip("/") + "/", path.lstrip("/"))
             response = self.engine.request("GET", url, note=f"sensitive path {path}")
             if response is None:
                 return
             if response.status_code == 200 and len(response.text or "") > 20:
+                found += 1
                 self.p.failed(f"{label} exposed: {path}")
                 self._add(None, Finding(
                     title=f"{label} publicly reachable ({path})",
@@ -317,6 +324,8 @@ class Auditor(EndpointMixin):
                     evidence=f"GET {url} -> HTTP 200, {len(response.text)} bytes",
                     remediation="Block operational paths at the edge and rotate any exposed secrets.",
                 ))
+        if not found:
+            self.p.passed(f"no sensitive operational paths exposed ({len(SENSITIVE_PATHS)} probed)")
 
     def _baseline_404(self, base: str) -> None:
         probe = urljoin(base.rstrip("/") + "/", f"__vordr_{secrets.token_hex(6)}")
@@ -332,3 +341,5 @@ class Auditor(EndpointMixin):
                 evidence=f"GET {probe} -> HTTP 200",
                 remediation="Return 404 for unknown resources so that 401/404 remain distinguishable.",
             ))
+        else:
+            self.p.passed(f"unknown paths return {response.status_code} (no catch-all routing)")

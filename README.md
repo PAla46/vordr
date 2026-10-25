@@ -91,8 +91,11 @@ posture checker, not an exploit tool.
   not in `--allow-hosts`, and refuses hosts that resolve to private addresses
   unless `--allow-private` is set.
 - **Backs off** on `429`/`Retry-After` and aborts after repeated `5xx`.
-- **Rate-limit probing is opt-in.** It is the only check with real traffic
-  weight, and it is capped and sequential.
+- **Rate-limit probing is opt-in** (`--rate-limit-probe`). It is the only check
+  with real traffic weight: capped, sequential, and it stops at the first `429`.
+  Passive rate-limit headers are inspected on every run. When the burst only
+  ever gets `401`/`403`, the result is reported as **not observable** (info),
+  never as "no rate limiting", because the limiter may sit behind authentication.
 - **Evidence is redacted on capture.** Emails, JWTs, bearer tokens and long digit
   sequences are replaced before anything is written to disk. Sensitive-field
   findings report field *names*, never values.
@@ -279,7 +282,7 @@ listed as skipped, with the reason.
 - Proxy/rewrite bypass: `X-Forwarded-For`, `X-Original-URL`, `X-Forwarded-Host`
 - Path normalisation: trailing slash, case change, `//`, `/./`, `%2e`
 - `OPTIONS` allow-list, `TRACE`
-- Passive rate-limit headers; opt-in sequential burst
+- Passive rate-limit headers; opt-in sequential burst (stops at the first `429`)
 - Opt-in error-verbosity probe
 
 ## OWASP coverage
@@ -292,12 +295,12 @@ Findings map to the OWASP API Security Top 10 (2023), with CWE and ASVS ids in
 | API1 BOLA | not tested — needs two identities and real object ids |
 | API2 Broken Authentication | partial — anonymous enforcement, forgery, header and path bypass |
 | API3 BOPLA | partial — sensitive field names in anonymous payloads |
-| API4 Unrestricted Resource Consumption | partial — rate-limit headers, opt-in burst |
+| API4 Unrestricted Resource Consumption | partial — rate-limit headers always; opt-in burst, info-only when auth rejects every request |
 | API5 BFLA | partial — anonymous access to function-level paths, method exposure |
 | API6 Sensitive Business Flows | not tested — needs business context |
 | API7 SSRF | not tested by design — requires injected payloads |
 | API8 Security Misconfiguration | covered for the anonymous surface |
-| API9 Improper Inventory Management | partial — docs exposure, versioning |
+| API9 Improper Inventory Management | partial — public docs/spec exposure |
 | API10 Third-party Consumption | not observable black-box |
 
 ## Getting real authorization coverage

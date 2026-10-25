@@ -43,20 +43,25 @@ def coverage_rows(executed: set[str]) -> list[dict[str, str]]:
     rows = []
     for category in OWASP:
         checks = category["checks"]
+        ran = [c for c in checks if c in executed]
         if not checks:
             status = "not tested"
         elif set(checks) <= executed:
             status = "tested"
-        elif set(checks) & executed:
+        elif ran:
             status = "partial"
         else:
             status = "not tested"
+        why = category["why"]
+        if not why and checks and not ran:
+            why = category.get("hint") or "checks did not run in this configuration"
         rows.append({
             "id": category["id"],
             "name": category["name"],
             "status": status,
+            "run": f"{len(ran)}/{len(checks)}" if checks else "—",
             "checks": ", ".join(CHECK_LABELS.get(c, c) for c in checks) or "—",
-            "why": category["why"],
+            "why": why,
         })
     return rows
 
@@ -201,10 +206,10 @@ def write_markdown(path: Path, *, cfg: Config, meta: dict, findings: list[Findin
     lines.append("")
 
     lines.append("## OWASP API Security Top 10 (2023) coverage\n")
-    lines.append("| ID | Category | Coverage | Implemented checks | Limitation |")
-    lines.append("|---|---|---|---|---|")
+    lines.append("| ID | Category | Coverage | Run | Checks mapped | Limitation |")
+    lines.append("|---|---|---|---|---|---|")
     for row in coverage:
-        lines.append(f"| {row['id']} | {row['name']} | {row['status']} | "
+        lines.append(f"| {row['id']} | {row['name']} | {row['status']} | {row['run']} | "
                      f"{_md(row['checks'])} | {_md(row['why'])} |")
     lines.append("")
 
@@ -333,10 +338,11 @@ def write_xlsx(path: Path, *, cfg: Config, meta: dict, findings: list[Finding],
         ])
 
     owasp_sheet = workbook.create_sheet("OWASP Coverage")
-    headers = ["ID", "Category", "Coverage", "Implemented checks", "Limitation"]
-    _style_header(owasp_sheet, headers, [12, 44, 13, 60, 56])
+    headers = ["ID", "Category", "Coverage", "Run", "Checks mapped", "Limitation"]
+    _style_header(owasp_sheet, headers, [12, 44, 13, 7, 60, 56])
     for row in coverage:
-        _append(owasp_sheet, [row["id"], row["name"], row["status"], row["checks"], row["why"]],
+        _append(owasp_sheet, [row["id"], row["name"], row["status"], row["run"],
+                              row["checks"], row["why"]],
                 fills={3: STATUS_FILL.get(row["status"], "E0E0E0")})
         cell = owasp_sheet.cell(row=owasp_sheet.max_row, column=3)
         cell.font = Font(bold=True, color="000000")

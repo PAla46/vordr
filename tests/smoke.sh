@@ -99,6 +99,24 @@ expect "sheet 'stdin'" "$OUT/stdin.txt"
 expect "GET /v1/products" "$OUT/stdin.txt"
 expect "write method POST" "$OUT/stdin.txt"
 
+# rate-limit probe on a 401-only endpoint: must report "not observable", not "no limiting"
+"${VORDR[@]}" "http://127.0.0.1:${PORT}" \
+  --i-have-authorization --allow-private --no-color --rate-limit-probe \
+  -u /v1/users --limit 1 --out "$OUT/rate" >"$OUT/rate.txt"
+expect "rate limit probe: up to" "$OUT/rate.txt"
+expect "rate limiting not observable" "$OUT/rate.txt"
+python3 - "$OUT/rate/findings.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+info = [f for f in data["findings"] if "not observable" in f["title"]]
+assert info, "expected an info-level rate-limit finding"
+assert info[0]["severity"] == "info", "auth-only burst must not be graded low"
+assert "HTTP 401" in info[0]["evidence"], "evidence must record the status distribution"
+assert not any(f["title"].startswith("No rate limiting observed") for f in data["findings"])
+print("rate probe: info-level, status distribution recorded")
+PY
+grep -q "| tested | 4/4 |" "$OUT/report.md" || { echo "FAIL: API2 coverage not 4/4" >&2; fail=1; }
+
 if [[ "$fail" -ne 0 ]]; then
   echo "SMOKE TEST FAILED" >&2
   exit 1
